@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer utilities {
+  .neo-brutal {
+    @apply border-4 border-black shadow-brutal;
+  }
+  
+  .neo-brutal-lg {
+    @apply border-[6px] border-black shadow-brutal-lg;
+  }
+  
+  .neo-brutal-sm {
+    @apply border-2 border-black shadow-brutal-sm;
+  }
+}
