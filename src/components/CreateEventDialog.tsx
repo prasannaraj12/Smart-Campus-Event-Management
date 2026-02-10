@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useMutation } from 'convex/react'
+import { useMutation, useAction } from 'convex/react'
 import { api } from '../../convex/_generated/api'
-import { X } from 'lucide-react'
+import { X, Sparkles } from 'lucide-react'
 import { Id } from '../../convex/_generated/dataModel'
 import { useNavigate } from 'react-router-dom'
 
@@ -11,12 +11,15 @@ interface Props {
   onClose: () => void
 }
 
-const categories = ['Workshop', 'Seminar', 'Sports', 'Cultural', 'Technical', 'Social']
+const categories = ['Workshop', 'Seminar', 'Sports', 'Cultural', 'Technical', 'Social', 'Hackathon']
 
 export default function CreateEventDialog({ organizerId, onClose }: Props) {
   const navigate = useNavigate()
   const createEvent = useMutation(api.events.createEvent)
+  const generateDescription = useAction(api.ai.generateDescription)
+
   const [loading, setLoading] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
 
   const [formData, setFormData] = useState({
@@ -32,6 +35,32 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
     requirements: '',
   })
 
+  // Validate dates
+  const today = new Date().toISOString().split('T')[0]
+
+  const handleGenerateDescription = async () => {
+    if (!formData.title) {
+      setError('Please enter a title first to generate a description.')
+      return
+    }
+
+    setGenerating(true)
+    setError('')
+    try {
+      const description = await generateDescription({
+        title: formData.title,
+        category: formData.category
+      })
+
+      setFormData(prev => ({ ...prev, description }))
+    } catch (err: any) {
+      console.error(err)
+      setError('Failed to generate description. Please try again.')
+    } finally {
+      setGenerating(false)
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
@@ -39,11 +68,18 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
 
     // Validate date is not in the past
     const eventDate = new Date(formData.date)
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    
-    if (eventDate < today) {
+    const todayDate = new Date()
+    todayDate.setHours(0, 0, 0, 0)
+
+    if (eventDate < todayDate) {
       setError('Event date cannot be in the past')
+      setLoading(false)
+      return
+    }
+
+    // Validate team event requirements
+    if (formData.isTeamEvent && (!formData.teamSize || formData.teamSize < 2)) {
+      setError('Team events must have a team size of at least 2')
       setLoading(false)
       return
     }
@@ -53,7 +89,7 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
         ...formData,
         organizerId,
         isTeamEvent: formData.isTeamEvent,
-        teamSize: formData.isTeamEvent ? formData.teamSize || undefined : undefined,
+        teamSize: formData.isTeamEvent ? formData.teamSize : undefined,
         requirements: formData.requirements || undefined,
       })
 
@@ -105,7 +141,18 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
             </div>
 
             <div>
-              <label className="block font-bold mb-2">Description *</label>
+              <div className="flex justify-between items-center mb-2">
+                <label className="block font-bold">Description *</label>
+                <button
+                  type="button"
+                  onClick={handleGenerateDescription}
+                  disabled={generating || !formData.title}
+                  className="text-xs font-bold text-purple-600 flex items-center gap-1 hover:text-purple-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {generating ? 'Generating...' : 'Auto-Generate with AI'}
+                </button>
+              </div>
               <textarea
                 required
                 value={formData.description}
@@ -122,6 +169,7 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
                 <input
                   type="date"
                   required
+                  min={today}
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                   className="neo-brutal w-full px-4 py-3 font-semibold focus:outline-none focus:ring-2 focus:ring-black"
@@ -158,12 +206,7 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
                 <select
                   required
                   value={formData.category}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      category: e.target.value as any,
-                    })
-                  }
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value as any })}
                   className="neo-brutal w-full px-4 py-3 font-semibold focus:outline-none focus:ring-2 focus:ring-black"
                 >
                   {categories.map((cat) => (
@@ -185,72 +228,58 @@ export default function CreateEventDialog({ organizerId, onClose }: Props) {
               </div>
             </div>
 
-            {/* Team event toggle */}
-            <div className="neo-brutal bg-yellow-100 p-4 flex items-start gap-3">
-              <input
-                id="team-event"
-                type="checkbox"
-                checked={formData.isTeamEvent}
-                onChange={(e) =>
-                  setFormData({
+            {/* Team Event Toggle */}
+            <div className="neo-brutal bg-blue-100 p-4">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.isTeamEvent}
+                  onChange={(e) => setFormData({
                     ...formData,
                     isTeamEvent: e.target.checked,
-                    // Clear teamSize when turning off team events
-                    teamSize: e.target.checked ? formData.teamSize : undefined,
-                  })
-                }
-                className="mt-1 w-5 h-5 accent-black"
-              />
-              <div>
-                <label htmlFor="team-event" className="font-black cursor-pointer">
-                  This is a team event
-                </label>
-                <p className="text-sm font-semibold">
-                  When enabled, participants register as a team. Leave unchecked for individual-only events
-                  like most workshops.
-                </p>
-              </div>
+                    teamSize: e.target.checked ? formData.teamSize : undefined
+                  })}
+                  className="mt-1 w-5 h-5 accent-black"
+                />
+                <div>
+                  <span className="font-black">This is a Team Event</span>
+                  <p className="text-sm font-semibold mt-1">
+                    Enable this if participants must register as teams. Leave unchecked for individual registration (workshops, seminars, etc.)
+                  </p>
+                </div>
+              </label>
             </div>
 
+            {/* Team Size (only if team event) */}
             {formData.isTeamEvent && (
               <div>
-                <label className="block font-bold mb-2">Team Size * (at least 2)</label>
+                <label className="block font-bold mb-2">Team Size *</label>
                 <input
                   type="number"
-                  min="2"
                   required={formData.isTeamEvent}
+                  min="2"
                   value={formData.teamSize || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      teamSize: e.target.value ? parseInt(e.target.value) : undefined,
-                    })
-                  }
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    teamSize: e.target.value ? parseInt(e.target.value) : undefined
+                  })}
                   className="neo-brutal w-full px-4 py-3 font-semibold focus:outline-none focus:ring-2 focus:ring-black"
-                  placeholder="Enter required team size (e.g. 4)"
+                  placeholder="e.g., 4 for a team of 4"
                 />
+                <p className="text-sm font-semibold mt-2 text-gray-600">
+                  Number of participants per team (including the team leader)
+                </p>
               </div>
             )}
 
             <div>
-              <label className="block font-bold mb-2">
-                {formData.category === 'Workshop' || formData.category === 'Technical'
-                  ? 'Requirements * (Workshop/Technical)'
-                  : 'Requirements (Optional)'}
-              </label>
+              <label className="block font-bold mb-2">Requirements (Optional)</label>
               <textarea
-                required={formData.category === 'Workshop' || formData.category === 'Technical'}
                 value={formData.requirements}
                 onChange={(e) => setFormData({ ...formData, requirements: e.target.value })}
                 rows={3}
                 className="neo-brutal w-full px-4 py-3 font-semibold focus:outline-none focus:ring-2 focus:ring-black resize-none"
-                placeholder={
-                  formData.category === 'Workshop'
-                    ? 'Prerequisites / what participants should know or bring...'
-                    : formData.category === 'Technical'
-                    ? 'Tech stack, skills, or portfolio requirements...'
-                    : 'Any prerequisites or requirements...'
-                }
+                placeholder="Any prerequisites or requirements..."
               />
             </div>
 

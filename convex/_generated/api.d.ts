@@ -8,10 +8,19 @@
  * @module
  */
 
+import type * as ai from "../ai.js";
+import type * as analytics from "../analytics.js";
+import type * as announcements from "../announcements.js";
 import type * as auth from "../auth.js";
+import type * as discussions from "../discussions.js";
 import type * as events from "../events.js";
+import type * as history from "../history.js";
+import type * as migration from "../migration.js";
+import type * as photos from "../photos.js";
+import type * as recommendations from "../recommendations.js";
 import type * as registrations from "../registrations.js";
 import type * as users from "../users.js";
+import type * as utils from "../utils.js";
 
 import type {
   ApiFromModules,
@@ -20,10 +29,19 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  ai: typeof ai;
+  analytics: typeof analytics;
+  announcements: typeof announcements;
   auth: typeof auth;
+  discussions: typeof discussions;
   events: typeof events;
+  history: typeof history;
+  migration: typeof migration;
+  photos: typeof photos;
+  recommendations: typeof recommendations;
   registrations: typeof registrations;
   users: typeof users;
+  utils: typeof utils;
 }>;
 
 /**

@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Calendar, MapPin, Users, Clock, Trash2 } from 'lucide-react'
-import { getCategoryColor, getDaysUntilEvent } from '../lib/utils'
+import { getDaysUntilEvent } from '../lib/utils'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { Id } from '../../convex/_generated/dataModel'
@@ -10,6 +10,7 @@ import { useAuth } from '../hooks/use-auth'
 
 interface Event {
   _id: Id<"events">
+  _creationTime?: number
   title: string
   description: string
   date: string
@@ -32,15 +33,45 @@ export default function EventCard({ event, onDeleted }: Props) {
   const [deleting, setDeleting] = useState(false)
 
   const registrations = useQuery(api.registrations.getEventRegistrations, { eventId: event._id })
-  
+
   const daysUntil = getDaysUntilEvent(event.date)
   const participantCount = registrations?.length || 0
+  const capacityPercentage = (participantCount / event.maxParticipants) * 100
 
-  const isOwnerOrganizer = user?.role === 'organizer' && user.userId === event.organizerId
+  // Check if event was created recently (within 3 days)
+  const createdDaysAgo = event._creationTime
+    ? Math.floor((Date.now() - event._creationTime) / (1000 * 60 * 60 * 24))
+    : 999
+  const isNew = createdDaysAgo <= 3
+
+  // Capacity status
+  const isAlmostFull = capacityPercentage >= 80
+  const isFull = capacityPercentage >= 100
+
+  // Capacity bar color
+  const getCapacityColor = () => {
+    if (capacityPercentage >= 80) return 'bg-red-500'
+    if (capacityPercentage >= 50) return 'bg-yellow-500'
+    return 'bg-green-500'
+  }
+
+  // Time indicator text
+  const getTimeIndicator = () => {
+    if (daysUntil < 0) return { text: 'Closed', color: 'bg-gray-500 text-white' }
+    if (daysUntil === 0) return { text: 'Today', color: 'bg-red-500 text-white' }
+    if (daysUntil === 1) return { text: 'Tomorrow', color: 'bg-orange-500 text-white' }
+    if (daysUntil <= 7) return { text: `${daysUntil}D left`, color: 'bg-yellow-400 text-black' }
+    return null
+  }
+
+  const timeIndicator = getTimeIndicator()
+
+  // Force string comparison for consistent behavior
+  const isAnyOrganizer = user?.role === 'organizer';
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!isOwnerOrganizer || deleting) return
+    if (!isAnyOrganizer || deleting) return
     const confirmed = window.confirm('Delete this event? This cannot be undone.')
     if (!confirmed) return
 
@@ -56,79 +87,167 @@ export default function EventCard({ event, onDeleted }: Props) {
     }
   }
 
+  // Get category color class (lighter version for modern look)
+  const getCategoryBgClass = (category: string) => {
+    const colors: Record<string, string> = {
+      Workshop: 'bg-yellow-400',
+      Seminar: 'bg-blue-400',
+      Sports: 'bg-green-400',
+      Cultural: 'bg-pink-400',
+      Technical: 'bg-purple-400',
+      Social: 'bg-orange-400',
+    }
+    return colors[category] || 'bg-gray-400'
+  }
+
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.9 }}
-      whileHover={{ scale: 1.02 }}
-      className="neo-brutal bg-white overflow-hidden cursor-pointer group relative h-full flex flex-col hover:translate-x-1 hover:translate-y-1 hover:shadow-none transition-all"
-      onClick={() => navigate(`/event/${event._id}`)}
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      whileHover={{ y: -4 }}
+      className="bg-white rounded-2xl overflow-hidden shadow-md hover:shadow-xl transition-all border border-gray-100 group h-full flex flex-col"
     >
-      {/* Category Badge */}
-      <div className={`${getCategoryColor(event.category)} px-4 py-2 font-black text-sm`}>
-        {event.category}
+      {/* Category Strip - Thinner */}
+      <div className={`${getCategoryBgClass(event.category)} px-4 py-1.5 flex items-center justify-between`}>
+        <span className="font-bold text-xs uppercase tracking-wide">{event.category}</span>
+
+        {/* Badges */}
+        <div className="flex gap-1">
+          {isNew && (
+            <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">
+              🆕 New
+            </span>
+          )}
+          {isAlmostFull && !isFull && (
+            <span className="bg-orange-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">
+              ALMOST FULL
+            </span>
+          )}
+          {isFull && (
+            <span className="bg-red-600 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">
+              Full
+            </span>
+          )}
+          {timeIndicator && (
+            <span className={`${timeIndicator.color} px-2 py-0.5 rounded-full text-[10px] font-bold`}>
+              {timeIndicator.text}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Days Until Badge */}
-      {daysUntil >= 0 && daysUntil <= 7 && (
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          className={`absolute top-4 ${
-            isOwnerOrganizer ? 'right-24' : 'right-4'
-          } neo-brutal-sm bg-red-400 px-3 py-1 font-black text-xs z-10`}
-        >
-          {daysUntil === 0 ? 'TODAY!' : `${daysUntil} DAYS LEFT`}
-        </motion.div>
+      {/* Organizer Action Buttons */}
+      {isAnyOrganizer && (
+        <div className="absolute top-10 right-3 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          {/* Export CSV Button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={(e) => {
+              e.stopPropagation();
+              import('../lib/utils').then(({ exportToCSV }) => {
+                const data = registrations?.map(r => ({ ...r, eventName: event.title })) || [];
+                exportToCSV(data, `${event.title}_registrations`);
+              });
+            }}
+            disabled={!registrations || registrations.length === 0}
+            className="bg-blue-500 text-white px-2 py-1 text-xs font-bold rounded-lg inline-flex items-center gap-1 hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export Participants to CSV"
+          >
+            <Users className="w-3 h-3" />
+            CSV
+          </motion.button>
+
+          {/* Delete Button */}
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleDelete}
+            disabled={deleting}
+            className="bg-red-500 text-white px-2 py-1 text-xs font-bold rounded-lg inline-flex items-center gap-1 hover:bg-red-600 transition-colors disabled:opacity-50"
+            title="Delete Event"
+          >
+            <Trash2 className="w-3 h-3" />
+          </motion.button>
+        </div>
       )}
 
-      {/* Delete Button (Organizer Owner Only) */}
-      {isOwnerOrganizer && (
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleDelete}
-          disabled={deleting}
-          className="absolute top-4 right-4 z-20 neo-brutal-sm bg-red-400 px-2 py-1 text-xs font-bold inline-flex items-center gap-1 hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-none transition-all disabled:opacity-50"
-        >
-          <Trash2 className="w-3 h-3" />
-          Delete
-        </motion.button>
-      )}
+      <div className="p-5 flex-1 flex flex-col relative">
+        {/* Title - Larger */}
+        <h3 className="text-xl font-black mb-2 line-clamp-2 group-hover:text-indigo-600 transition-colors">
+          {event.title}
+        </h3>
 
-      <div className="p-6 flex-1 flex flex-col">
-        <h3 className="text-2xl font-black mb-3 line-clamp-2">{event.title}</h3>
-        <p className="text-gray-700 mb-4 line-clamp-2 flex-1">{event.description}</p>
+        {/* Description - 2 lines max */}
+        <p className="text-gray-500 text-sm mb-4 line-clamp-2 flex-1">{event.description}</p>
 
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Calendar className="w-4 h-4" />
-            <span>{new Date(event.date).toLocaleDateString()}</span>
+        {/* Event Details - Muted icons */}
+        <div className="space-y-1.5 mb-4">
+          <div className="flex items-center gap-2 text-sm">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <span className="font-semibold text-gray-700">
+              {new Date(event.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+            </span>
           </div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Clock className="w-4 h-4" />
-            <span>{event.time}</span>
+          <div className="flex items-center gap-2 text-sm">
+            <Clock className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-600">{event.time}</span>
           </div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <MapPin className="w-4 h-4" />
-            <span className="line-clamp-1">{event.location}</span>
-          </div>
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Users className="w-4 h-4" />
-            <span>{participantCount} / {event.maxParticipants} registered</span>
+          <div className="flex items-center gap-2 text-sm">
+            <MapPin className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-600 line-clamp-1">{event.location}</span>
           </div>
         </div>
 
-        {/* View Details Overlay (no pointer events so buttons stay clickable) */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          whileHover={{ opacity: 1 }}
-          className="pointer-events-none absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center"
-        >
-          <span className="text-white text-2xl font-black">View Details</span>
-        </motion.div>
+        {/* Capacity Progress Bar */}
+        <div className="mb-4">
+          <div className="flex justify-between text-xs mb-1">
+            <span className="text-gray-600 font-medium">
+              <Users className="w-3 h-3 inline mr-1" />
+              {participantCount} / {event.maxParticipants} seats filled
+            </span>
+            <span className={`font-bold ${capacityPercentage >= 80 ? 'text-red-600' : capacityPercentage >= 50 ? 'text-yellow-600' : 'text-green-600'}`}>
+              {Math.round(capacityPercentage)}%
+            </span>
+          </div>
+          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.min(capacityPercentage, 100)}%` }}
+              transition={{ duration: 0.5 }}
+              className={`h-full ${getCapacityColor()} rounded-full`}
+            />
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-2 pt-3 border-t border-gray-100">
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={(e) => {
+              e.stopPropagation()
+              navigate(`/event/${event._id}`)
+            }}
+            disabled={isFull}
+            className={`flex-1 py-2 rounded-lg font-bold text-sm transition-all ${isFull
+              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+              : 'bg-yellow-400 hover:bg-yellow-500 shadow-sm hover:shadow-md'
+              }`}
+          >
+            {isFull ? 'Full' : 'Register'}
+          </motion.button>
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={() => navigate(`/event/${event._id}`)}
+            className="px-4 py-2 text-sm font-semibold text-gray-600 hover:text-indigo-600 transition-colors"
+          >
+            View Details →
+          </motion.button>
+        </div>
       </div>
     </motion.div>
   )
